@@ -1,6 +1,8 @@
-__author__ = "<your name>"
+__author__ = "Hugo Phibbs"
 __organization__ = "COSC343/AIML402, University of Otago"
-__email__ = "<your e-mail>"
+__email__ = "phihu4141@student.otago.ac.nz"
+
+from typing import NewType
 
 from typing import Tuple, List
 
@@ -8,6 +10,28 @@ import numpy as np
 
 agentName = "<my_agent>"
 trainingSchedule = [("random_agent.py", 5), ("self", 1)]  # Train against random agent for 5 generations,
+
+
+class Chromosome:
+    """
+    Custom class for a Chromosome, extracted into a class for easy reading
+    
+    I decided to keep them separate because I wanted to do cross over of them independently
+    Whether this is necessary, I'm not sure, but I'll do it anyways for clarity.
+    
+    Contains:
+    - Weight matrix, dimensions self.nActions * self.nPercepts
+    - Bias row vector, dimensions self.nActions * 1
+    """
+
+    def __init__(self, weights, biases):
+        """
+        
+        :param weights: self.nActions * self.nPercepts weight matrix
+        :param biases:  self.nActions * 1 bias vector
+        """
+        self.weights = weights
+        self.biases = biases
 
 
 # then against self for 1 generation
@@ -89,87 +113,145 @@ class Cleaner:
         action_vector = np.random.randint(low=-100, high=100, size=self.nActions)
         return action_vector
 
-    def create_random_offspring(self, parent1: Tuple[np.ndarray, np.ndarray], parent2: Tuple[np.ndarray, np.ndarray]) \
-            -> Tuple[np.ndarray, np.ndarray]:
+    def create_k_point_weights(self, weights_1: np.ndarray, weights_2: np.ndarray, k_points=4) -> np.ndarray:
         """
-        Creates an offspring from two parents using random crossover
-        , i.e. combines their two chromosomes into something new
+        Creates a weight offspring from two parents using a k-point crossover
 
+        Does this by crossing over segments of each row, row by row.
 
-        :param parent1: first parent chromosome
-        :param parent2: second parent chromosome
+        :param parent1: first parent's weight matrix
+        :param parent2: second parent's weight matrix
         :return: a new chromosome
         """
+        select_parent1 = np.random.choice([True, False])  # Specify whether to start selection from parent1 or parent2
+        new_weights = np.zeros_like(weights_1)
+
+        segment_size = len(new_weights) / k_points
+        for i in range(len(weights_1)):
+            j = 0
+            while j < len(weights_1[0]):
+                weights_to_select_from = weights_1 if select_parent1 else weights_2
+
+                # Possibly goes beyond end of array, np handles gracefully though
+                new_weights[i, j:j + segment_size] = weights_to_select_from[i, j:j + segment_size]
+
+                select_parent1 = not select_parent1
+                j += segment_size
+
+        return new_weights
+
+    def create_lin_interpolation_biases(self, biases_1: np.ndarray, biases_2: np.ndarray):
+        """
+        Performs a random linear interpolation to combine two weights values.
+
+        To keep bias values somewhat more stable than weights, this technique can be used
+
+        :param biases_1: first vector of biases
+        :param biases_2: second vector of biases
+        :return:
+        """
+        num_biases = len(biases_1)
+        lin_interpolation_vec = np.random.uniform(low=0.4, high=0.6, size=num_biases)
+        ones_vec = np.ones(size=num_biases)
+        return biases_1 * lin_interpolation_vec + biases_2 * (ones_vec - lin_interpolation_vec)
+
+    def mutate_weights(self, weights: np.ndarray, mutation_rate=0.05):
+        """
+        Mutates the weights of the chromosomes.
+
+        Mutates with a given rate, and chooses a value between the min_weight - max_min_dist / 4 and max_weight + max_min_dist / 4. This is
+        so weight values not yet encountered have the chance to be selected.
+
+        :param weights: weights matrix to mutate
+        :param mutation_rate: rate of mutation
+        :return:
+        """
+        min_weight = np.min(weights)
+        max_weight = np.max(weights)
+        max_min_dist = (max_weight + min_weight) / 2
+
+        for row in weights:
+            rand_num = np.random.rand()
+
+            if rand_num < mutation_rate:
+                rand_index = np.random.randint(0, len(row))
+                row[rand_index] = np.random.uniform(low=min_weight - max_min_dist / 4,
+                                                    high=max_weight + max_min_dist / 4)
+
+        return weights
+
+    def create_runif_weights(self, weights_1: np.ndarray, weights_2: np.ndarray) -> np.ndarray:
+        """
+        Creates a weights matrix from two parent's weights using random uniform crossover
+
+        :param weights_1: weight matrix belonging to the first parent
+        :param weights_2: weight matrix belonging to the second parent
+        :return: a new weights matrix
+        """
         new_weights = np.zeros(self.nActions, self.nPercepts)
-        new_biases = np.zeros(self.nActions)
-        parent1_weights, parent1_biases = parent1
-        parent2_weights, parent2_biases = parent2
 
         for i in range(len(new_weights)):
             for j in range(len(new_weights[0])):
                 rand_num = np.random.rand()
                 if rand_num < 0.5:
-                    new_weights[i, j] = parent1_weights[i, j]
+                    new_weights[i, j] = weights_1[i, j]
                 else:
-                    new_weights[i, j] = parent2_weights[i, j]
+                    new_weights[i, j] = weights_2[i, j]
 
         # TODO to create a mutation - need someway to create number from a RANGE of values - challenge is to decide
         # TODO cont: what this range should be. Should weight values be normalised? - This sounds complicated
+        return new_weights
 
-        for i in range(len(new_biases)):
-            rand_num = np.random.rand()
-            if rand_num < 0.5:
-                new_biases[i] = parent1_biases[i]
-            else:
-                new_biases[i] = parent2_biases[i]
-
-        return new_weights, new_biases
-
-    def create_random_chromosome(self) -> Tuple[np.ndarray, np.ndarray]:
+    def create_random_chromosome(self) -> Chromosome:
         """
         Creates a random chromosome
 
-        :return: a tuple containing a random 4*63 weights matrix and a ndarray of length 4 containing biases
+        :return: a new Chromosome
         """
         weights = np.random.rand(self.nActions, self.nPercepts)
         biases = np.random.rand(self.nActions)
-        return weights, biases
+        return Chromosome(weights, biases)
 
-    def create_initial_chromosomes(self, population_size) -> List[Tuple[np.ndarray, np.ndarray]]:
+    def tournament_selection(self, population: List[Chromosome], sample_size_factor = 0.1) -> Tuple[Chromosome, Chromosome]:
+        """
+        Does tournament selection to choose new parents
+
+        :param population: population of Chromosomes to choose parents from
+        :param sample_size_factor: size of the subset to create as a ratio of the total population size
+        :return: a tuple containing two Chromosomes for the selected parents
+        """
+        sample_size = int(len(population) * sample_size_factor)
+        sample = np.random.choice(population, size=sample_size, replace=False)
+        sample_fitnesses = np.zeros_like(sample)
+        for i in range(len(sample)):
+            sample_fitnesses = evalFitness(sample[i])
+
+        top_two_parent_indices = np.argpartition(sample_fitnesses, -2)[-2:]
+
+        return sample_fitnesses[top_two_parent_indices]
+
+
+
+    def create_initial_chromosomes(self, population_size: int) -> List[Chromosome]:
         """
         Creates the initial random population of chromosomes
 
         :param population_size: size of the initial population to create
         :return: a list of chromosomes
         """
-        initial_population = [None] * population_size
-        for i in range(len(initial_population)):
-            initial_population[i] = self.create_random_chromosome()
-        return initial_population
+        return [self.create_random_chromosome() for i in range(population_size)]
 
-    def create_actions(self, percepts, chromosome) -> List[float]:
+    def create_actions(self, percepts: np.ndarray, chromosome: Chromosome) -> np.ndarray:
         """
         Receives a chromosome and creates the actions that it should take based on the percepts of the game
 
-        Does this in a linear manner
-
-        TODO explore other ways to do this! - i.e. not just in a linear fashion
+        Uses a linear model of weights * percepts + biases(Transpose)
 
         :param percepts: 63 length array containing percepts
-        :param chromosome: Tuple containing a 4*64 numpy matrix of weights and a ndarray of length 4 containing the biases
+        :param chromosome: A Chromosome to create actions for.
         :return:
         """
-        results = [0] * self.nActions
-        weights, biases = chromosome
-
-        for i in range(len(weights)):
-            row = weights[i]
-            this_result = 0
-            for j in range(len(row)):
-                this_result += percepts[j] * row[j]
-            this_result += biases[i]
-            results[i] = this_result
-        return results
+        return np.matmul(chromosome.weights, percepts) + chromosome.biases.T
 
 
 def evalFitness(population):
