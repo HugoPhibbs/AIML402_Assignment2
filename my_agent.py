@@ -230,8 +230,6 @@ class Cleaner:
 
         return sample_fitnesses[top_two_parent_indices]
 
-
-
     def create_initial_chromosomes(self, population_size: int) -> List[Chromosome]:
         """
         Creates the initial random population of chromosomes
