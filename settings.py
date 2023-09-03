@@ -22,7 +22,7 @@ game_settings = {
    "nTurns": 100,
 
    # Speed of visualisation ('slow','normal','fast')
-   "visSpeed": 'normal',
+   "visSpeed": 'fast',
 
    # Visualisation resolution
    "visResolution": (1280, 720),
@@ -30,7 +30,7 @@ game_settings = {
    # Wheter to save final games
    "saveFinalGames": True,
 
-   "seed": None   # seed for game choices, None for random seed
+   "seed": None   # seed for 1game choices, None for random seed
 }
 
 

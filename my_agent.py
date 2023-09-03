@@ -205,13 +205,15 @@ class CreateOffspring:
         elif weights_method == "K_POINT":
             new_weights = CreateOffspring.create_k_point_weights(parent_1.chromosome.weights,
                                                                  parent_2.chromosome.weights)
+        elif weights_method == "LIN":
+            new_weights = CreateOffspring.create_lin_int_vec(parent_1.chromosome.weights, parent_2.chromosome.weights)
         else:
             raise Exception(f"Unknown argument for weights_method, value: {weights_method}")
 
         # Create offspring biases
         if biases_method == "LIN":
             new_biases = CreateOffspring.create_lin_int_vec(parent_1.chromosome.biases,
-                                                            parent_2.chromosome.biases)
+                                                            parent_2.chromosome.biases, alpha_low=0.45, alpha_high=0.55)
         else:
             raise Exception(f"Unknown argument for biases_method, value: {biases_method}")
 
@@ -219,27 +221,28 @@ class CreateOffspring:
 
         return Cleaner(n_percepts, n_actions, parent_1.grid_size, parent_1.max_turns, new_chromosome)
 
-
-
     @staticmethod
-    def create_lin_int_vec(vec_1: np.ndarray, vec_2: np.ndarray, alpha_low=0.45, alpha_high=0.55):
+    def create_lin_int_vec(arr_1: np.ndarray, arr_2: np.ndarray, alpha_low: float = 0, alpha_high: float = 1):
         """
-        Performs a random linear interpolation to do cross over of two vectors
+        Performs a random linear interpolation to do cross over of two n*m dimensional arrays
 
-        Returns the result of the operation vec1 * alpha + vec * (1 - alpha), where alpha is
+        Returns the result of the operation arr_1 * alpha + arr_2 * (1 - alpha), where alpha is an n*m dimensional array formed from values between alpha_low and alpha_high.
 
-        To keep bias values somewhat more stable than weights, this technique can be used
+        Where * is the Hadamard Product (element-wise matrix multiplication)
 
-        :param vec_1: first vector
-        :param vec_2: second vector
-        :param alpha_low: low value for range of values in alpha vector
-        :param alpha_high: high value for range of values in alpha vector
-        :return: a cross-over of
+        Can tweak alpha_low and alpha_high to cross over behaviour. E.g. for biases, you may want to create a vector
+        that is closer to an average of the two
+
+        :param arr_1: first array
+        :param arr_2: second array
+        :param alpha_low: low value for range of values in alpha vector. Default 0
+        :param alpha_high: high value for range of values in alpha vector. Default 1
+        :return: a cross-over of the two vectors as described
         """
-        num_biases = len(vec_1)
-        alpha_vec = np.random.uniform(low=alpha_low, high=alpha_high, size=num_biases)
-        ones_vec = np.ones(shape=num_biases)
-        return vec_1 * alpha_vec + vec_2 * (ones_vec - alpha_vec)
+        alpha_dims = arr_1.shape
+        alpha_vec = np.random.uniform(low=alpha_low, high=alpha_high, size=alpha_dims)
+        ones_mat = np.ones(shape=alpha_dims)
+        return arr_1 * alpha_vec + arr_2 * (ones_mat - alpha_vec)  # Numpy * performs Hadamard Product by default
 
     @staticmethod
     def create_runif_weights(weights_1: np.ndarray, weights_2: np.ndarray) -> np.ndarray:
@@ -412,7 +415,7 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
                                                           selection_method="TOURNAMENT")
 
         # Create offspring from parents
-        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="RUNIF")
+        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="LIN")
 
         # Add the new cleaner to the new population
         new_population[i] = new_cleaner
