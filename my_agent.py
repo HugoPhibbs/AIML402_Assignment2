@@ -14,6 +14,7 @@ agentName = "Noo-Noo"  # https://teletubbies.fandom.com/wiki/Noo-Noo
 num_generations = 25
 trainingSchedule = [("random_agent.py", num_generations), ("self", 0)]
 
+
 class Chromosome:
     """
     Custom class for a Chromosome, extracted into a class for easy reading
@@ -67,7 +68,7 @@ class Cleaner:
         :return: a new Chromosome
         """
         weights = np.random.rand(self.n_actions, self.n_percepts)
-        biases = np.random.rand(self.n_actions)
+        biases = np.random.uniform(low=0, high=self.n_percepts, size=self.n_actions)
         return Chromosome(weights, biases)
 
     def AgentFunction(self, percepts):
@@ -97,13 +98,17 @@ class Cleaner:
         """
         visual, energy, bin_spots, num_fails = percepts
 
+        energy_bin_fails = np.array([energy, bin_spots, num_fails])
+
         # Flatten percepts into an array
-        percepts_flattened = np.concatenate((visual.flatten(), np.array([energy, bin_spots, num_fails])))
+        percepts_flattened = np.concatenate((visual.flatten(), energy_bin_fails))
 
-
+        # Extract energy, bin_spots and fails from the weights, just experimenting to see what happens if I increase their contribution to actions
+        energy_bin_fails_weights = self.chromosome.weights[:, -3:]
 
         # Now calculate actions to take using formula weights * percepts + biases
-        return np.matmul(self.chromosome.weights, percepts_flattened) + self.chromosome.biases.T
+        return np.matmul(self.chromosome.weights, percepts_flattened) + np.matmul(energy_bin_fails_weights ** 2,
+                                                                                  energy_bin_fails) + self.chromosome.biases.T
 
 
 class ParentSelection:
@@ -146,15 +151,15 @@ class ParentSelection:
         rand_num = np.random.uniform()
 
         j = 0
-        for i in range(len(population_fitness_indices_sorted) - 1): # Don't go to the end
+        for i in range(len(population_fitness_indices_sorted) - 1):  # Don't go to the end
             j = population_fitness_indices_sorted[i]
             fitness = population_fitness[j]
             if rand_num >= fitness:
-                return population[j], population[j+1]
-        return population[j], population[j+1]
+                return population[j], population[j + 1]
+        return population[j], population[j + 1]
 
     @staticmethod
-    def tournament_selection(population: List[Cleaner], sample_size_factor=0.30) -> Tuple[Cleaner, Cleaner]:
+    def tournament_selection(population: List[Cleaner], sample_size_factor=0.20) -> Tuple[Cleaner, Cleaner]:
         """
         Does tournament selection to choose new parents
 
@@ -194,6 +199,7 @@ class CreateOffspring:
         n_actions = parent_1.n_actions
         n_percepts = parent_2.n_percepts
 
+        # Create offspring weights
         if weights_method == "RUNIF":
             new_weights = CreateOffspring.create_runif_weights(parent_1.chromosome.weights, parent_2.chromosome.weights)
         elif weights_method == "K_POINT":
@@ -202,9 +208,10 @@ class CreateOffspring:
         else:
             raise Exception(f"Unknown argument for weights_method, value: {weights_method}")
 
+        # Create offspring biases
         if biases_method == "LIN":
-            new_biases = CreateOffspring.create_lin_interpolation_biases(parent_1.chromosome.biases,
-                                                                         parent_2.chromosome.biases)
+            new_biases = CreateOffspring.create_lin_int_vec(parent_1.chromosome.biases,
+                                                            parent_2.chromosome.biases)
         else:
             raise Exception(f"Unknown argument for biases_method, value: {biases_method}")
 
@@ -212,21 +219,27 @@ class CreateOffspring:
 
         return Cleaner(n_percepts, n_actions, parent_1.grid_size, parent_1.max_turns, new_chromosome)
 
+
+
     @staticmethod
-    def create_lin_interpolation_biases(biases_1: np.ndarray, biases_2: np.ndarray):
+    def create_lin_int_vec(vec_1: np.ndarray, vec_2: np.ndarray, alpha_low=0.45, alpha_high=0.55):
         """
-        Performs a random linear interpolation to combine two weights values.
+        Performs a random linear interpolation to do cross over of two vectors
+
+        Returns the result of the operation vec1 * alpha + vec * (1 - alpha), where alpha is
 
         To keep bias values somewhat more stable than weights, this technique can be used
 
-        :param biases_1: first vector of biases
-        :param biases_2: second vector of biases
-        :return:
+        :param vec_1: first vector
+        :param vec_2: second vector
+        :param alpha_low: low value for range of values in alpha vector
+        :param alpha_high: high value for range of values in alpha vector
+        :return: a cross-over of
         """
-        num_biases = len(biases_1)
-        lin_interpolation_vec = np.random.uniform(low=0.4, high=0.6, size=num_biases)
+        num_biases = len(vec_1)
+        alpha_vec = np.random.uniform(low=alpha_low, high=alpha_high, size=num_biases)
         ones_vec = np.ones(shape=num_biases)
-        return biases_1 * lin_interpolation_vec + biases_2 * (ones_vec - lin_interpolation_vec)
+        return vec_1 * alpha_vec + vec_2 * (ones_vec - alpha_vec)
 
     @staticmethod
     def create_runif_weights(weights_1: np.ndarray, weights_2: np.ndarray) -> np.ndarray:
@@ -277,7 +290,7 @@ class CreateOffspring:
         return new_weights
 
     @staticmethod
-    def mutate_weights(weights: np.ndarray, mutation_rate=0.05):
+    def mutate_weights(weights: np.ndarray, mutation_rate=0.01):
         """
         Mutates the weights of the chromosomes.
 
@@ -315,15 +328,7 @@ def evalFitness(population: List[Cleaner]) -> np.ndarray:
     # Fitness initialiser for all agents
     fitness = np.zeros(N)
 
-    # This loop iterates over your agents in the old population - the purpose of this boilerplate
-    # code is to demonstrate how to fetch information from the old_population in order
-    # to score fitness of each agent
     for n, cleaner in enumerate(population):
-        # cleaner is an instance of the Cleaner class that you implemented above, therefore you can access any attributes
-        # (such as `self.chromosome').  Additionally, each object have 'game_stats' attribute provided by the
-        # game engine, which is a dictionary with the following information on the performance of the cleaner in
-        # the last game:
-        #
         #  cleaner.game_stats['cleaned'] - int, total number of dirt loads picked up
         #  cleaner.game_stats['emptied'] - int, total number of dirt loads emptied at a charge station
         #  cleaner.game_stats['active_turns'] - int, total number of turns the bot was active (non-zero energy)
@@ -334,21 +339,14 @@ def evalFitness(population: List[Cleaner]) -> np.ndarray:
         #  cleaner.game_stats['visits'] - int, total number of squares visited (visiting the same square twice counts
         #                                      as one visit)
 
-        # This fitness functions considers total number of cleaned squares.  This may NOT be the best fitness function.
-        # You SHOULD consider augmenting it with information from other stats as well.  You DON'T HAVE TO make use
-        # of every stat.
         cleaned, emptied, active_turns, successful_actions, recharge_count, recharge_energy, visits = cleaner.game_stats.values()
 
-        #fitness[n] = cleaner.game_stats['cleaned']
-
-        fitness[n] = visits * (cleaned ** 2 + emptied + recharge_energy) + 0
+        fitness[n] = cleaned * cleaned / visits if visits != 0 else 0
 
     return fitness
 
 
-
-
-def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarray, elitism_proportion=0.1) -> Tuple:
+def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarray, elitism_proportion=0.2) -> Tuple:
     """
     Adds Elitism to the population
 
@@ -381,9 +379,12 @@ def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarra
     fitness_sorted_indices = numpy.argsort(old_population_fitness)
     elite_parent_indices = fitness_sorted_indices[-elite_num_parents:]
 
+    # print(f"Elite average {np.mean(old_population_fitness[elite_parent_indices])}")
+
     # Create new population list, add elite parents to start
     new_population = np.concatenate(
-        (np.full(old_population_size-elite_num_parents, fill_value=0, dtype=Cleaner), old_population_arr[elite_parent_indices],))
+        (np.full(old_population_size - elite_num_parents, fill_value=0, dtype=Cleaner),
+         old_population_arr[elite_parent_indices]))
 
     # Effective old population after removing bottom portion to make room for elite parents, want to keep population
     # size consistent
@@ -407,10 +408,11 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
 
     for i in range(len(effective_old_population)):
         # Select parents
-        parent1, parent2 = ParentSelection.select_parents(effective_old_population, selection_method="TOURNAMENT")  # Leave defaults
+        parent1, parent2 = ParentSelection.select_parents(effective_old_population,
+                                                          selection_method="TOURNAMENT")
 
         # Create offspring from parents
-        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="RUNIF")  # Leave defaults
+        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="RUNIF")
 
         # Add the new cleaner to the new population
         new_population[i] = new_cleaner
