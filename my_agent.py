@@ -5,14 +5,24 @@ __email__ = "phihu4141@student.otago.ac.nz"
 from typing import NewType
 
 from typing import Tuple, List
+from settings import game_settings
 
 import numpy
 import numpy as np
 
 agentName = "Noo-Noo"  # https://teletubbies.fandom.com/wiki/Noo-Noo
 
-num_generations = 25
+num_generations = 100
 trainingSchedule = [("random_agent.py", num_generations), ("self", 0)]
+
+population_size = game_settings["nCleaners"]
+
+# For creating children every few generations, to (hopefully) get more stable behaviour.
+generation_num = 0
+old_avg_fitness = None
+average_populations = True
+num_gens_between_children = 5
+population_fitness_across_gens = np.zeros((num_gens_between_children, population_size))
 
 
 class Chromosome:
@@ -61,14 +71,14 @@ class Cleaner:
         else:
             self.chromosome = chromosome
 
-    def create_random_chromosome(self) -> Chromosome:
+    def create_random_chromosome(self, max_weight=10) -> Chromosome:
         """
         Creates a random chromosome
 
         :return: a new Chromosome
         """
-        weights = np.random.rand(self.n_actions, self.n_percepts)
-        biases = np.random.uniform(low=0, high=self.n_percepts, size=self.n_actions)
+        weights = np.random.uniform(low=0, high=max_weight, size=(self.n_actions, self.n_percepts))
+        biases = np.random.uniform(low=0, high=max_weight * self.n_percepts, size=self.n_actions)
         return Chromosome(weights, biases)
 
     def AgentFunction(self, percepts):
@@ -106,7 +116,11 @@ class Cleaner:
         # Extract energy, bin_spots and fails from the weights, just experimenting to see what happens if I increase their contribution to actions
         energy_bin_fails_weights = self.chromosome.weights[:, -3:]
 
+        # TODO could add function to find distance of the nearest recharging station
+
         # Now calculate actions to take using formula weights * percepts + biases
+
+        # TODO add documentation on this below
         return np.matmul(self.chromosome.weights, percepts_flattened) + np.matmul(energy_bin_fails_weights ** 2,
                                                                                   energy_bin_fails) + self.chromosome.biases.T
 
@@ -344,7 +358,10 @@ def evalFitness(population: List[Cleaner]) -> np.ndarray:
 
         cleaned, emptied, active_turns, successful_actions, recharge_count, recharge_energy, visits = cleaner.game_stats.values()
 
-        fitness[n] = cleaned * cleaned / visits if visits != 0 else 0
+        # fitness[n] = cleaned
+
+        fitness[n] = cleaned * (visits ** 2) * recharge_energy
+        # fitness[n] = (cleaned ** 3) / visits if visits != 0 else 0 #Could give errors?
 
     return fitness
 
@@ -403,11 +420,36 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
     :param old_population: list of Cleaners for the old population of cleaners
     :return: a Tuple containing a list of the new cleaners (same length as old population), and the average fitness of the old population
     """
+    population_fitness = evalFitness(old_population)
 
-    old_population_fitness = evalFitness(old_population)
+    avg_fitness = np.mean(population_fitness)
+
+    global average_populations
+
+    if average_populations:
+
+        global generation_num
+        global old_avg_fitness
+        global num_gens_between_children
+        global population_fitness_across_gens
+
+        population_fitness_across_gens[generation_num, :] = population_fitness
+
+        # Average fitness across a number of populations
+        avg_fitness = population_fitness_across_gens[0:generation_num + 1, ].mean()
+
+        generation_num += 1
+        if generation_num % num_gens_between_children != 0:
+            return old_population, avg_fitness
+
+        # Calculate average fitness of cleaners across generations
+        population_fitness = population_fitness_across_gens.mean(axis=0)
+
+        population_fitness_across_gens = np.zeros_like(population_fitness_across_gens)
+        generation_num = 0
 
     # Add elitism
-    new_population, effective_old_population = add_elitism(old_population, old_population_fitness)
+    new_population, effective_old_population = add_elitism(old_population, population_fitness)
 
     for i in range(len(effective_old_population)):
         # Select parents
@@ -420,9 +462,8 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
         # Add the new cleaner to the new population
         new_population[i] = new_cleaner
 
-    # At the end you need to compute the average fitness and return it along with your new population
-    avg_fitness = np.mean(old_population_fitness)
-
     assert len(old_population) == len(new_population), f"Population sizes are not equal!"  # For my own sanity
+
+    old_avg_fitness = avg_fitness
 
     return new_population, avg_fitness
