@@ -1218,14 +1218,14 @@ class CleanersGame:
             v.show(v_data, turn=t, titleStr=titleStr)
 
 
-def main(argv):
-    # Load the defaults
-    from settings import game_settings
+def run_game(game_settings = None):
+    if game_settings is None:
+        from settings import game_settings as g_s
+        game_settings = g_s
 
-    if not isinstance(game_settings['gridSize'],tuple):
+    if not isinstance(game_settings['gridSize'], tuple):
         print("Error! Invalid setting for gridSize.  Must be at tuple (Y,X)")
         sys.exit(-1)
-
 
     Y, X = game_settings['gridSize']
     nSquares = Y*X
@@ -1261,16 +1261,26 @@ def main(argv):
 
     # Create a new game and run it
     g = CleanersGame(gridSize=game_settings['gridSize'],
-                nTurns=game_settings['nTurns'],nChargers=game_settings['nCleaners']//2,
-                nAgents=game_settings['nCleaners'],
-                saveFinalGames=game_settings['saveFinalGames'],
-                seed=game_settings['seed'])
+                     nTurns=game_settings['nTurns'],nChargers=game_settings['nCleaners']//2,
+                     nAgents=game_settings['nCleaners'],
+                     saveFinalGames=game_settings['saveFinalGames'],
+                     seed=game_settings['seed'])
 
     g.run(game_settings['player1'],
           game_settings['player2'],
           visResolution=game_settings['visResolution'],
           visSpeed=game_settings['visSpeed'])
 
-if __name__ == "__main__":
-   main(sys.argv[1:])
+    # Return to run analysis
+    return g
+
+
+def main(argv):
+    # Load the defaults
+    from settings import game_settings
+    return run_game()
+
+
+# if __name__ == "__main__":
+#    main(sys.argv[1:])
 
