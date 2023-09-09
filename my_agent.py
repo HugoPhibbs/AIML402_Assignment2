@@ -10,18 +10,19 @@ from settings import game_settings
 import numpy
 import numpy as np
 
-agentName = "Noo-Noo"  # https://teletubbies.fandom.com/wiki/Noo-Noo
+agentName = "M-0"  # https://the-walle-au.fandom.com/wiki/M-O
 
-num_generations = 100
-trainingSchedule = [("random_agent.py", num_generations), ("self", 0)]
+num_generations = 300
+trainingSchedule = [("random_agent.py", num_generations // 2), ("self", num_generations // 2)]
 
 population_size = game_settings["nCleaners"]
 
 # For creating children every few generations, to (hopefully) get more stable behaviour.
 generation_num = 0
 old_avg_fitness = None
-average_populations = True
-num_gens_between_children = 5
+average_populations = False
+num_gens_between_children = 10
+
 population_fitness_across_gens = np.zeros((num_gens_between_children, population_size))
 
 
@@ -66,6 +67,7 @@ class Cleaner:
         self.max_turns = maxTurns
         self.game_stats = None  # So I don't get annoying IDE warnings, I'm assuming this is set later by the engine
 
+        # Below is for when cleaner is created without any parents
         if chromosome is None:
             self.chromosome = self.create_random_chromosome()
         else:
@@ -78,6 +80,7 @@ class Cleaner:
         :return: a new Chromosome
         """
         weights = np.random.uniform(low=0, high=max_weight, size=(self.n_actions, self.n_percepts))
+        # biases = np.random.uniform(low=max_weight * self.n_percepts * 10, high=max_weight * self.n_percepts * 10, size=self.n_actions)
         biases = np.random.uniform(low=0, high=max_weight * self.n_percepts, size=self.n_actions)
         return Chromosome(weights, biases)
 
@@ -107,7 +110,6 @@ class Cleaner:
         :return: actions vector as described
         """
         visual, energy, bin_spots, num_fails = percepts
-
         energy_bin_fails = np.array([energy, bin_spots, num_fails])
 
         # Flatten percepts into an array
@@ -115,12 +117,6 @@ class Cleaner:
 
         # Extract energy, bin_spots and fails from the weights, just experimenting to see what happens if I increase their contribution to actions
         energy_bin_fails_weights = self.chromosome.weights[:, -3:]
-
-        # TODO could add function to find distance of the nearest recharging station
-
-        # Now calculate actions to take using formula weights * percepts + biases
-
-        # TODO add documentation on this below
         return np.matmul(self.chromosome.weights, percepts_flattened) + np.matmul(energy_bin_fails_weights ** 2,
                                                                                   energy_bin_fails) + self.chromosome.biases.T
 
@@ -159,18 +155,24 @@ class ParentSelection:
         population_fitness = evalFitness(population)
 
         # Normalise the fitness
-        population_fitness = population_fitness / np.max(population_fitness)
-        population_fitness_indices_sorted = np.argsort(population_fitness)
+        population_fitness_normed = population_fitness / np.max(population_fitness)
+        population_fitness_indices_sorted = np.argsort(population_fitness_normed)
 
         rand_num = np.random.uniform()
 
-        j = 0
-        for i in range(len(population_fitness_indices_sorted) - 1):  # Don't go to the end
+        # Loop until one element from the end, since you need to look one step ahead
+        for i in range(len(population_fitness_indices_sorted)):
             j = population_fitness_indices_sorted[i]
-            fitness = population_fitness[j]
-            if rand_num >= fitness:
-                return population[j], population[j + 1]
-        return population[j], population[j + 1]
+
+            # Check if the random num is in last interval
+            if i == len(population_fitness_indices_sorted) - 1:
+                return population[population_fitness_indices_sorted[i-1]], population[j]
+
+            if population_fitness_normed[j] <= rand_num < population_fitness_normed[population_fitness_indices_sorted[i+1]]:
+                return population[j], population[population_fitness_indices_sorted[i+1]]
+
+        # Since rand_num is strictly less than 1,this should never happen.
+        raise Exception('Should not be reaching here!')
 
     @staticmethod
     def tournament_selection(population: List[Cleaner], sample_size_factor=0.20) -> Tuple[Cleaner, Cleaner]:
@@ -293,6 +295,7 @@ class CreateOffspring:
         new_weights = np.zeros_like(weights_1)
 
         segment_size = len(new_weights[0]) // k_points
+
         for i in range(len(weights_1)):
             j = 0
             while j < len(weights_1[0]):
@@ -340,10 +343,7 @@ def evalFitness(population: List[Cleaner]) -> np.ndarray:
     :param population: list of cleaners
     :return: a numpy nd array for the fitness ratings of the population, in the order that they were inputted
     """
-    N = len(population)
-
-    # Fitness initialiser for all agents
-    fitness = np.zeros(N)
+    fitness = np.zeros(len(population))
 
     for n, cleaner in enumerate(population):
         #  cleaner.game_stats['cleaned'] - int, total number of dirt loads picked up
@@ -358,9 +358,11 @@ def evalFitness(population: List[Cleaner]) -> np.ndarray:
 
         cleaned, emptied, active_turns, successful_actions, recharge_count, recharge_energy, visits = cleaner.game_stats.values()
 
-        # fitness[n] = cleaned
+        fitness[n] = cleaned
 
-        fitness[n] = cleaned * (visits ** 2) * recharge_energy
+        # fitness[n] = cleaned * visits * recharge_energy
+
+        # fitness[n] = cleaned * (visits ** 2) * recharge_energy
         # fitness[n] = (cleaned ** 3) / visits if visits != 0 else 0 #Could give errors?
 
     return fitness
@@ -386,8 +388,8 @@ def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarra
             https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Spread_syntax
 
         1: A list containing the old population of cleaners but with the bottom 20% of the population removed
-            according to their fitness. it is from this array that parents can be selected from in the later part of the
-            algorithm
+            according to their fitness. It is from this array that parents can be selected from in the later part of the
+            algorithm.
     """
 
     # Convert to a np array for ease of indexing
@@ -429,7 +431,6 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
     if average_populations:
 
         global generation_num
-        global old_avg_fitness
         global num_gens_between_children
         global population_fitness_across_gens
 
@@ -457,13 +458,11 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
                                                           selection_method="TOURNAMENT")
 
         # Create offspring from parents
-        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="LIN")
+        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="RUNIF")
 
         # Add the new cleaner to the new population
         new_population[i] = new_cleaner
 
     assert len(old_population) == len(new_population), f"Population sizes are not equal!"  # For my own sanity
-
-    old_avg_fitness = avg_fitness
 
     return new_population, avg_fitness
