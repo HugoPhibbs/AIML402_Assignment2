@@ -1,7 +1,7 @@
 __author__ = "Lech Szymanski"
 __organization__ = "COSC343/AIML402, University of Otago"
 __email__ = "lech.szymanski@otago.ac.nz"
-__version__ = 1.1
+__version__ = 1.2
 
 import importlib
 import numpy as np
@@ -193,7 +193,7 @@ class Player:
                     self.name = playerFile
 
             if jointname and self.game.in_tournament:
-               self.pname = playerFile.split('/')[-2]
+                self.pname = playerFile.split('/')[-2]
 
             if not hasattr(self.exec,'trainingSchedule'):
                 self.game.throwError("Agent is missing the 'trainingSchedule' variable.",self.player)
@@ -295,7 +295,7 @@ class Player:
                         'The new_population returned from newGeneration() must contain objects of Cleaner() type')
                 else:
                     print("The new_population returned form newGeneration() in '%s' must contain objects of Cleaner() type" %
-                    self.playerFile)
+                          self.playerFile)
                     traceback.print_exc()
                     sys.exit(-1)
 
@@ -435,11 +435,11 @@ class Player:
             if self.game.in_tournament:
                 raise RuntimeError(
                     "Length of the list returned by evalFitness() from '%s' is %d; expecting the length to be %d." % (
-                    self.playerFile, len(fitness), len(agents)))
+                        self.playerFile, len(fitness), len(agents)))
             else:
                 print(
                     "Length of the list returned by evalFitness() from '%s' is %d; expecting the length to be %d." % (
-                    self.playerFile, len(fitness), len(agents)))
+                        self.playerFile, len(fitness), len(agents)))
                 traceback.print_exc()
                 sys.exit(-1)
 
@@ -482,6 +482,7 @@ class CleanersPlay:
         Y, X = self.game.gridSize
         self.map = np.zeros((Y, X, 2), dtype='int8')
         self.map[:,:,0] = -1
+        self.cleaned_by = np.zeros((Y,X),dtype='int8')
         self.rotations = [0,90,180,270]
 
         self.showGame = showGame
@@ -591,7 +592,7 @@ class CleanersPlay:
 
         if self.showGame is not None or self.saveGame:
             vis_cleaners, stats = self.vis_update(players)
-            vis_data = (self.map[:,:,0], vis_cleaners, stats)
+            vis_data = (np.copy(self.map[:,:,0]), np.copy(self.cleaned_by), vis_cleaners, stats)
 
             if self.showGame is not None:
                 self.game.vis.show(vis_data, turn=0, titleStr=self.showGame)
@@ -625,8 +626,12 @@ class CleanersPlay:
 
                 for avatar in player.avatars:
 
+                    avatar.action_success = 0
+
                     if avatar.energy < 1:
                         continue
+
+                    avatar.active_turns += 1
 
                     # Percepts
                     percepts = np.zeros((fieldOfVision,fieldOfVision,2)).astype('int')
@@ -765,9 +770,8 @@ class CleanersPlay:
                         avatar.bin += 1
                         avatar.cleaned += 1
                         self.map[y,x,0] = 0
+                        self.cleaned_by[y,x] = -(2*avatar.player.player-1)
                 avatar.position = (y,x)
-                if avatar.energy >= 1:
-                    avatar.active_turns += 1
 
             if not self.game.game_play:
                 return None
@@ -775,7 +779,7 @@ class CleanersPlay:
             if self.showGame is not None or self.saveGame:
 
                 vis_cleaners, stats = self.vis_update(players)
-                vis_data = (self.map[:,:,0], vis_cleaners, stats)
+                vis_data = (np.copy(self.map[:,:,0]), np.copy(self.cleaned_by), vis_cleaners, stats)
 
                 if self.showGame is not None:
                     self.game.vis.show(vis_data, turn=turn + 1, titleStr=self.showGame)
@@ -1055,7 +1059,7 @@ class CleanersGame:
                     playerStrings += [p.pname]
 
             self.vis = vis.visualiser(gridSize=self.players[0].game.gridSize,speed=visSpeed,playerStrings=playerStrings,
-                                  resolution=visResolution)
+                                      resolution=visResolution)
 
         if trainGames is None:
             nRuns = len(run_games)
@@ -1200,7 +1204,7 @@ class CleanersGame:
         # Open the game file and read data
         try:
             with gzip.open(loadGame) as f:
-              (player1Name,player2Name,vis_data,gridSize) = pickle.load(f)
+                (player1Name,player2Name,vis_data,gridSize) = pickle.load(f)
         except:
             print("Error! Failed to load %s." % loadGame)
 
@@ -1210,7 +1214,7 @@ class CleanersGame:
 
         # Create an instance of visualiser
         v = vis.visualiser(gridSize=gridSize, speed=visSpeed, playerStrings=playerStrings,
-                       resolution=visResolution)
+                           resolution=visResolution)
 
         # Show visualisation
         titleStr = "Cleaners! %s" % os.path.basename(loadGame)
@@ -1281,6 +1285,6 @@ def main(argv):
     return run_game()
 
 
-# if __name__ == "__main__":
-#    main(sys.argv[1:])
+if __name__ == "__main__":
+   main(sys.argv[1:])
 
