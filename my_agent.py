@@ -12,15 +12,15 @@ import numpy as np
 
 agentName = "M-0"  # https://the-walle-au.fandom.com/wiki/M-O
 
-num_generations = 300
-trainingSchedule = [("random_agent.py", num_generations // 2), ("self", num_generations // 2)]
+num_generations = 500
+trainingSchedule = [("random_agent.py", num_generations // 2), ("self", num_generations // 2)] # , ("random_agent.py", num_generations // 3)]
 
 population_size = game_settings["nCleaners"]
 
 # For creating children every few generations, to (hopefully) get more stable behaviour.
 generation_num = 0
 old_avg_fitness = None
-average_populations = False
+average_populations = True
 num_gens_between_children = 10
 
 population_fitness_across_gens = np.zeros((num_gens_between_children, population_size))
@@ -80,7 +80,6 @@ class Cleaner:
         :return: a new Chromosome
         """
         weights = np.random.uniform(low=0, high=max_weight, size=(self.n_actions, self.n_percepts))
-        # biases = np.random.uniform(low=max_weight * self.n_percepts * 10, high=max_weight * self.n_percepts * 10, size=self.n_actions)
         biases = np.random.uniform(low=0, high=max_weight * self.n_percepts, size=self.n_actions)
         return Chromosome(weights, biases)
 
@@ -229,7 +228,7 @@ class CreateOffspring:
         # Create offspring biases
         if biases_method == "LIN":
             new_biases = CreateOffspring.create_lin_int_vec(parent_1.chromosome.biases,
-                                                            parent_2.chromosome.biases, alpha_low=0.45, alpha_high=0.55)
+                                                            parent_2.chromosome.biases, alpha_low=0, alpha_high=1)
         else:
             raise Exception(f"Unknown argument for biases_method, value: {biases_method}")
 
@@ -368,28 +367,23 @@ def evalFitness(population: List[Cleaner]) -> np.ndarray:
     return fitness
 
 
-def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarray, elitism_proportion=0.2) -> Tuple:
+def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarray, elitism_proportion=0.2) -> Tuple[list, int]:
     """
     Adds Elitism to the population
 
     Extracted into its own method for ease of reading.
 
-    Works by removing Cleaners from the bottom of the population, and replacing them with a portion of the best Cleaners
-
     :param old_population: list of the old population
     :param old_population_fitness: list containing the fitness ratings of the old population
     :param elitism_proportion: portion of the top cleaners to carry to the next population with elitism.
             E.g. 0.2 is equivalent to the top 20% Cleaners
-    :return: a 2-tuple containing, at each index:
+    :return: a 2-tuple containing at each index:
 
-        0: A list for the new population to add Cleaners to. This is of the format [None, None, ... , None, ...elite_parents].
+        0:  A list for the new population to add Cleaners to. This is of the format [None, None, ... , None, ...elite_parents].
             The size is preset, so values can be easily added to it, without expensive array resizing.
             FYI the ... is the spread operator from JS:
             https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Spread_syntax
-
-        1: A list containing the old population of cleaners but with the bottom 20% of the population removed
-            according to their fitness. It is from this array that parents can be selected from in the later part of the
-            algorithm.
+        1: Int for the number of elite parents added
     """
 
     # Convert to a np array for ease of indexing
@@ -397,22 +391,18 @@ def add_elitism(old_population: List[Cleaner], old_population_fitness: np.ndarra
 
     old_population_size = len(old_population)
 
-    elite_num_parents = int(old_population_size * elitism_proportion)  # Can adjust quotient as need be
+    num_elite_parents = int(old_population_size * elitism_proportion)  # Can adjust quotient as need be
     fitness_sorted_indices = numpy.argsort(old_population_fitness)
-    elite_parent_indices = fitness_sorted_indices[-elite_num_parents:]
+    elite_parent_indices = fitness_sorted_indices[-num_elite_parents:]
 
     # print(f"Elite average {np.mean(old_population_fitness[elite_parent_indices])}")
 
     # Create new population list, add elite parents to start
     new_population = np.concatenate(
-        (np.full(old_population_size - elite_num_parents, fill_value=0, dtype=Cleaner),
+        (np.full(old_population_size - num_elite_parents, fill_value=0, dtype=Cleaner),
          old_population_arr[elite_parent_indices]))
 
-    # Effective old population after removing bottom portion to make room for elite parents, want to keep population
-    # size consistent
-    effective_old_population: np.ndarray = old_population_arr[fitness_sorted_indices[elite_num_parents:]]
-
-    return new_population.tolist(), effective_old_population.tolist()
+    return list(new_population.tolist()), num_elite_parents
 
 
 def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndarray]:
@@ -450,15 +440,15 @@ def newGeneration(old_population: List[Cleaner]) -> Tuple[List[Cleaner], np.ndar
         generation_num = 0
 
     # Add elitism
-    new_population, effective_old_population = add_elitism(old_population, population_fitness)
+    new_population, num_elite_parents = add_elitism(old_population, population_fitness)
 
-    for i in range(len(effective_old_population)):
+    for i in range(len(old_population) - num_elite_parents):
         # Select parents
-        parent1, parent2 = ParentSelection.select_parents(effective_old_population,
+        parent1, parent2 = ParentSelection.select_parents(old_population,
                                                           selection_method="TOURNAMENT")
 
         # Create offspring from parents
-        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="RUNIF")
+        new_cleaner = CreateOffspring.create_offspring(parent1, parent2, weights_method="K_POINT")
 
         # Add the new cleaner to the new population
         new_population[i] = new_cleaner
